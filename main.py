@@ -1,14 +1,16 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import Response
-from rembg import remove
+from rembg import remove, new_session
 from PIL import Image
 import io
+
+session = new_session("silueta")
 
 app = FastAPI()
 
 CANVAS_W = 1200
 CANVAS_H = 1500
-PRODUCT_SCALE = 0.88  # producto ocupa 88% del ancho del lienzo
+PRODUCT_SCALE = 0.88
 
 
 @app.get("/health")
@@ -23,21 +25,22 @@ async def process_image(file: UploadFile = File(...)):
 
     data = await file.read()
 
-    # Eliminar fondo
-    result = remove(data, model_name="silueta")
+    result = remove(data, session=session)
     img = Image.open(io.BytesIO(result)).convert("RGBA")
 
-    # Recortar al bounding box exacto de la prenda
+    # Bordes nítidos: threshold del canal alpha
+    r, g, b, a = img.split()
+    a = a.point(lambda x: 0 if x < 128 else 255)
+    img = Image.merge('RGBA', (r, g, b, a))
+
     bbox = img.getbbox()
     if bbox:
         img = img.crop(bbox)
 
-    # Calcular tamaño manteniendo proporción para que ocupe PRODUCT_SCALE del ancho
     target_w = int(CANVAS_W * PRODUCT_SCALE)
     ratio = target_w / img.width
     target_h = int(img.height * ratio)
 
-    # Si el alto supera el lienzo, ajustar por alto
     if target_h > int(CANVAS_H * PRODUCT_SCALE):
         target_h = int(CANVAS_H * PRODUCT_SCALE)
         ratio = target_h / img.height
@@ -45,13 +48,11 @@ async def process_image(file: UploadFile = File(...)):
 
     img = img.resize((target_w, target_h), Image.LANCZOS)
 
-    # Crear lienzo blanco y pegar la prenda centrada
     canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (255, 255, 255))
     x = (CANVAS_W - target_w) // 2
     y = (CANVAS_H - target_h) // 2
     canvas.paste(img, (x, y), img)
 
-    # Exportar como JPEG
     output = io.BytesIO()
     canvas.save(output, format="JPEG", quality=95)
     output.seek(0)
