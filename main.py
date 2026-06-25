@@ -24,7 +24,7 @@ async def process_image(file: UploadFile = File(...)):
     data = await file.read()
 
     # Eliminar fondo
-    result = remove(data)
+    result = remove(data, model_name="silueta")
     img = Image.open(io.BytesIO(result)).convert("RGBA")
 
     # Recortar al bounding box exacto de la prenda
